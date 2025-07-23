@@ -1,0 +1,10 @@
+numpy
+scikit-learn
+librosa
+ssqueezepy
+deep-forest
+shap
+wfdb
+matplotlib
+seaborn
+jupyter>=1.0.0

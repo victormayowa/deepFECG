@@ -1,0 +1,71 @@
+@startuml
+!theme vibrant
+
+title Experimental Setup Architecture
+
+package "Data Acquisition & Preprocessing" {
+  cloud "PhysioNet" {
+    database "MIT-BIH Arrhythmia Database" as db
+  }
+
+  component "Preprocessing" as preproc {
+    [Band-pass Filter] as bp_filter
+    [Baseline Wander Removal] as bl_removal
+    [Heartbeat Segmentation] as segmentation
+    [Windowing & Labeling] as windowing
+    [Data Splitting] as splitting
+  }
+
+  db --> bp_filter
+  bp_filter --> bl_removal
+  bl_removal --> segmentation
+  segmentation --> windowing
+  windowing --> splitting
+}
+
+package "Feature Extraction" {
+    component "MFCC"
+    component "DWT/SWT"
+    component "HHT"
+    component "SSCWT"
+    component "Normalization" as norm
+    component "PCA (Optional)" as pca
+}
+
+splitting --> MFCC
+splitting --> DWT/SWT
+splitting --> HHT
+splitting --> SSCWT
+
+MFCC --> norm
+DWT/SWT --> norm
+HHT --> norm
+SSCWT --> norm
+
+norm --> pca
+
+
+package "Model Training & Explainability" {
+    component "gcForest"
+    component "CascadeForestClassifier" as CascadeForest
+    component "SHAP Explainability" as shap
+}
+
+pca --> gcForest
+pca --> CascadeForest
+
+gcForest --> shap
+CascadeForest --> shap
+
+
+package "Evaluation" {
+    component "Performance Metrics" as metrics
+    component "Statistical Analysis" as stats
+    component "SHAP Visualizations" as shap_viz
+}
+
+shap --> metrics
+shap --> stats
+shap --> shap_viz
+
+@enduml

@@ -1,0 +1,20 @@
+[project]
+name = "deep-fecg-research"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "deep-forest>=0.1.7",
+    "flask>=3.1.1",
+    "jupyter>=1.0.0",
+    "librosa>=0.11.0",
+    "matplotlib>=3.9.4",
+    "numpy>=2.0.2",
+    "pywavelets>=1.6.0",
+    "scikit-learn>=1.6.1",
+    "seaborn>=0.13.2",
+    "shap>=0.48.0",
+    "ssqueezepy>=0.6.5",
+    "wfdb>=4.3.0",
+]
