@@ -1,46 +1,62 @@
+
+
 import shap
 import numpy as np
 import matplotlib.pyplot as plt
 
-def explain_model(model, test_features, test_labels):
+def explain_model(model, test_features, test_labels, feature_names, class_names):
     """
-    Explains the model's predictions using SHAP.
-
-    Args:
-        model (object): The trained model (gcForest or CascadeForestClassifier).
-        test_features (np.ndarray): The testing features.
-        test_labels (np.ndarray): The testing labels.
+    Explains the model's predictions using SHAP, with enhanced visualizations.
     """
     print("Calculating SHAP values...")
 
-    # For tree-based models like gcForest and CascadeForestClassifier, TreeExplainer is efficient.
-    # If the model is a scikit-learn compatible tree ensemble, TreeExplainer should work.
-    # If not, KernelExplainer is a more general but slower alternative.
     try:
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(test_features)
     except Exception as e:
-        print(f"TreeExplainer failed: {e}. Falling back to KernelExplainer (may be slow)...")
-        # KernelExplainer requires a background dataset for estimation
-        # Using a subset of test_features as background for performance
-        background_data = shap.sample(test_features, 100) # Sample 100 instances
+        print(f"TreeExplainer failed: {e}. Falling back to KernelExplainer...")
+        background_data = shap.sample(test_features, 100)
         explainer = shap.KernelExplainer(model.predict_proba, background_data)
         shap_values = explainer.shap_values(test_features)
 
-    print("Generating SHAP summary plot...")
-    # If the model is multi-output (multi-class classification), shap_values will be a list of arrays.
-    # For summary_plot, we often plot for one class or the absolute mean of all classes.
+    # Global Feature Importance (Summary Plot)
+    print("Generating SHAP summary plots for each class...")
     if isinstance(shap_values, list):
-        # For multi-class, plot the SHAP values for the first class (or average/sum them)
-        shap.summary_plot(shap_values[0], test_features, plot_type="bar", show=False)
+        for i, class_shap_values in enumerate(shap_values):
+            plt.figure()
+            shap.summary_plot(class_shap_values, test_features, feature_names=feature_names, show=False)
+            plt.title(f"SHAP Feature Importance for {class_names[i]}")
+            plt.tight_layout()
+            plt.savefig(f"shap_summary_{class_names[i]}.png")
+            plt.close()
     else:
-        shap.summary_plot(shap_values, test_features, plot_type="bar", show=False)
+        plt.figure()
+        shap.summary_plot(shap_values, test_features, feature_names=feature_names, show=False)
+        plt.title("SHAP Feature Importance")
+        plt.tight_layout()
+        plt.savefig("shap_summary.png")
+        plt.close()
 
-    plt.title("SHAP Feature Importance")
-    plt.tight_layout()
-    plt.savefig("shap_summary_plot.png")
-    plt.close()
-    print("SHAP summary plot saved as shap_summary_plot.png")
+    # Local Explanations for Misclassified Instances
+    print("Analyzing misclassified instances...")
+    predictions = model.predict(test_features)
+    misclassified_indices = np.where(predictions != test_labels)[0]
 
-    # You can also implement logic to analyze misclassified instances
-    # and generate local SHAP plots (e.g., shap.force_plot).
+    if len(misclassified_indices) > 0:
+        # Analyze the first 5 misclassified instances
+        for i in misclassified_indices[:5]:
+            print(f"\nAnalyzing misclassified instance {i}: Predicted={class_names[predictions[i]]}, Actual={class_names[test_labels[i]]}")
+            
+            # Generate a force plot for this instance
+            if isinstance(shap_values, list):
+                # For multi-class, explain the prediction for the predicted class
+                shap.force_plot(explainer.expected_value[predictions[i]], shap_values[predictions[i]][i,:], test_features[i,:], feature_names=feature_names, matplotlib=True, show=False)
+            else:
+                shap.force_plot(explainer.expected_value, shap_values[i,:], test_features[i,:], feature_names=feature_names, matplotlib=True, show=False)
+            
+            plt.title(f"SHAP Explanation for Misclassified Instance {i}")
+            plt.tight_layout()
+            plt.savefig(f"shap_force_plot_misclassified_{i}.png")
+            plt.close()
+            print(f"Force plot saved as shap_force_plot_misclassified_{i}.png")
+

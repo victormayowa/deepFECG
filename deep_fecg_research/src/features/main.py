@@ -1,12 +1,14 @@
+
 import numpy as np
 import librosa
 import pywt
+import emd
 from ssqueezepy import ssq_cwt
+from scipy.stats import entropy
 
 def extract_features(train_data, test_data, method='MFCC'):
     """
     Extracts features from the preprocessed ECG data.
-
     Args:
         train_data (np.ndarray): Training data (heartbeats).
         test_data (np.ndarray): Testing data (heartbeats).
@@ -40,52 +42,59 @@ def _extract_mfcc(data, sr=360, n_mfcc=13):
     """
     mfccs = []
     for heartbeat in data:
-        # Ensure heartbeat is float type for librosa
         heartbeat = heartbeat.astype(float)
         mfcc = librosa.feature.mfcc(y=heartbeat, sr=sr, n_mfcc=n_mfcc)
-        mfccs.append(np.mean(mfcc.T, axis=0)) # Take mean across time frames
+        mfccs.append(np.mean(mfcc.T, axis=0))
     return np.array(mfccs)
 
-def _extract_dwt(data, wavelet='db4', level=4):
+def _extract_dwt(data, wavelet='db2', level=4):
     """
-    Extracts Discrete Wavelet Transform (DWT) features.
+    Extracts statistical features from DWT coefficients.
     """
     dwt_features = []
     for heartbeat in data:
         coeffs = pywt.wavedec(heartbeat, wavelet, level=level)
-        # Flatten coefficients and concatenate them
-        features = np.concatenate([np.array(c).flatten() for c in coeffs])
+        features = []
+        for c in coeffs:
+            features.extend([
+                np.mean(c), 
+                np.var(c), 
+                np.std(c), 
+                entropy(np.abs(c)), 
+                np.sum(np.square(c))
+            ])
         dwt_features.append(features)
-    # Pad features to the maximum length if they are not uniform
-    max_len = max(len(f) for f in dwt_features)
-    padded_features = np.array([np.pad(f, (0, max_len - len(f)), 'constant') for f in dwt_features])
-    return padded_features
+    return np.array(dwt_features)
 
 def _extract_hht(data):
     """
-    Extracts Hilbert-Huang Transform (HHT) features.
-    Note: HHT implementation is complex and often requires external libraries
-    or a custom implementation of EMD. This is a placeholder.
-    For a full implementation, consider libraries like `emd`.
+    Extracts Hilbert-Huang Transform (HHT) features using EMD.
     """
-    print("Warning: HHT feature extraction is a placeholder and returns dummy data.")
-    # Dummy implementation: return mean and std of the signal as basic features
     hht_features = []
     for heartbeat in data:
-        hht_features.append([np.mean(heartbeat), np.std(heartbeat)])
+        imfs = emd.sift.sift(heartbeat)
+        instantaneous_freq, instantaneous_amp = emd.spectra.frequency_transform(imfs, 360, 'hilbert')
+        features = [
+            np.mean(instantaneous_freq), 
+            np.mean(instantaneous_amp), 
+            np.var(instantaneous_freq),
+            np.var(instantaneous_amp)
+        ]
+        hht_features.append(features)
     return np.array(hht_features)
 
 def _extract_sscwt(data, fs=360):
     """
-    Extracts Synchrosqueezed Continuous Wavelet Transform (SSCWT) features.
-    Note: SSCWT can produce high-dimensional output. This is a placeholder
-    and returns a simplified representation.
+    Extracts features from the Synchrosqueezed CWT.
     """
-    print("Warning: SSCWT feature extraction is a placeholder and returns dummy data.")
     sscwt_features = []
     for heartbeat in data:
-        # ssq_cwt returns (Tx, Wx, ssq_freqs, scales, wavel_scales)
-        # We'll take the mean of the absolute value of the transform as a simple feature
-        Tx, Wx, ssq_freqs, scales, wavel_scales = ssq_cwt(heartbeat, 'morlet', fs=fs)
-        sscwt_features.append(np.mean(np.abs(Tx)))
-    return np.array(sscwt_features).reshape(-1, 1)
+        Tx, _, _, _, _ = ssq_cwt(heartbeat, 'morlet', fs=fs)
+        # Extract energy from different frequency bands
+        freq_bands = [0, 5, 15, 25, 45]
+        energy_features = []
+        for i in range(len(freq_bands) - 1):
+            band_energy = np.sum(np.abs(Tx[freq_bands[i]:freq_bands[i+1], :])**2)
+            energy_features.append(band_energy)
+        sscwt_features.append(energy_features)
+    return np.array(sscwt_features)

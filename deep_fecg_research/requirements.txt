@@ -1,4 +1,4 @@
-numpy
+numpy>=1.12.0
 scikit-learn
 librosa
 ssqueezepy
@@ -7,4 +7,7 @@ shap
 wfdb
 matplotlib
 seaborn
+PyWavelets
 jupyter>=1.0.0
+imbalanced-learn
+emd
