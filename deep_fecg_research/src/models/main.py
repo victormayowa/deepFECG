@@ -1,10 +1,11 @@
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, confusion_matrix
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from deepforest import CascadeForestClassifier
-from gcforest.gcforest import GCForest
+from .gcforest import gcForest
 import numpy as np
 
-def train_and_evaluate(train_features, train_labels, test_features, test_labels, model_type='gcForest'):
+
+def train_and_evaluate(train_features, train_labels, test_features, test_labels, model_type='CascadeForest'):
     """
     Trains and evaluates the specified Deep Forest model with hyperparameter tuning.
     Args:
@@ -17,12 +18,13 @@ def train_and_evaluate(train_features, train_labels, test_features, test_labels,
     Returns:
         object: The trained model.
     """
+    print(f"DEBUG: main.py - Calling train_and_evaluate with model_type={model_type}")
     print(f"Training and evaluating {model_type} model...")
 
-    if model_type == 'gcForest':
-        model = _train_gcforest_with_tuning(train_features, train_labels)
-    elif model_type == 'CascadeForest':
+    if model_type == 'CascadeForest':
         model = _train_cascade_forest_with_tuning(train_features, train_labels)
+    elif model_type == 'gcForest':
+        model = _train_gcforest_with_tuning(train_features, train_labels)
     else:
         raise ValueError(f"Invalid model type: {model_type}")
 
@@ -32,32 +34,13 @@ def train_and_evaluate(train_features, train_labels, test_features, test_labels,
     # For roc_auc_score, we need probability estimates
     if hasattr(model, "predict_proba"):
         probas = model.predict_proba(test_features)
-    else: # gcForest might not have predict_proba in the same way
-        probas = model.predict(test_features) # Fallback for gcForest
+    else:
+        probas = model.predict(test_features)
 
     _print_evaluation_metrics(test_labels, predictions, probas)
 
     return model
 
-def _train_gcforest_with_tuning(train_features, train_labels):
-    """
-    Trains a GCForest model using GridSearchCV for hyperparameter tuning.
-    """
-    print("Training gcForest with hyperparameter tuning...")
-    param_grid = {
-        'n_estimators_as_forest': [[100], [200]],
-        'max_depth': [10, 20, None],
-        'min_samples_leaf': [1, 5, 10]
-    }
-    
-    gc = GCForest(shape_1X=train_features.shape[1], n_mgs=1, n_tolerant_retry=10, n_jobs=-1)
-    
-    # Note: GCForest may not be fully compatible with GridSearchCV.
-    # This is a conceptual implementation. A manual search might be needed.
-    # For now, we will train with a good default configuration.
-    print("Warning: GCForest tuning with GridSearchCV is complex. Using default good parameters.")
-    gc.fit(train_features, train_labels)
-    return gc
 
 def _train_cascade_forest_with_tuning(train_features, train_labels):
     """
@@ -65,13 +48,14 @@ def _train_cascade_forest_with_tuning(train_features, train_labels):
     """
     print("Training CascadeForestClassifier with hyperparameter tuning...")
     param_grid = {
+        'criterion': ['gini', 'entropy'],
         'n_estimators': [100, 200],
         'n_trees': [300, 500],
         'max_depth': [10, 20, None],
         'min_samples_leaf': [1, 5]
     }
     
-    cf = CascadeForestClassifier(use_predictor=True, n_jobs=-1, random_state=42)
+    cf = CascadeForestClassifier(use_predictor=True, n_jobs=1, random_state=42, partial_mode=False)
     
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     
@@ -79,6 +63,43 @@ def _train_cascade_forest_with_tuning(train_features, train_labels):
     grid_search.fit(train_features, train_labels)
     
     print(f"Best parameters found: {grid_search.best_params_}")
+    return grid_search.best_estimator_
+
+def _train_gcforest_with_tuning(train_features, train_labels):
+    """
+    Trains a GCForest model with multi-grained scanning and hyperparameter tuning.
+    """
+    print("Training GCForest with multi-grained scanning and hyperparameter tuning...")
+
+    # Determine shape_1X for sequential data (ECG)
+    # Assuming train_features is 2D: (n_samples, n_features)
+    # shape_1X should be (1, n_features) for sequence slicing
+    feature_dim = train_features.shape[1]
+    shape_1X_val = (1, feature_dim)
+
+    # Define parameter grid for GridSearchCV
+    param_grid = {
+        'n_mgsRFtree': [30, 50],  # Number of trees in MGS Random Forests
+        'window': [[int(feature_dim * 0.1)], [int(feature_dim * 0.2)], [int(feature_dim * 0.3)]], # Example window sizes, adjust based on ECG characteristics
+        'stride': [1], # Keep stride at 1 for now
+        'n_cascadeRF': [2, 3], # Number of Random Forests in a cascade layer
+        'n_cascadeRFtree': [101, 201], # Number of trees in cascade Random Forests
+        'min_samples_mgs': [0.1, 0.05], # Min samples for split in MGS
+        'min_samples_cascade': [0.05, 0.02], # Min samples for split in Cascade
+        'cascade_layer': [np.inf], # Allow cascade to grow until tolerance
+        'tolerance': [0.001], # Accuracy tolerance for cascade growth
+    }
+
+    # Instantiate gcForest with fixed parameters and shape_1X
+    # n_jobs=-1 to use all available cores
+    gcf = gcForest(shape_1X=shape_1X_val, n_jobs=-1)
+
+    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42) # Reduced n_splits for faster tuning
+
+    grid_search = GridSearchCV(estimator=gcf, param_grid=param_grid, cv=cv, n_jobs=-1, verbose=2, scoring='accuracy')
+    grid_search.fit(train_features, train_labels)
+
+    print(f"Best parameters found for GCForest: {grid_search.best_params_}")
     return grid_search.best_estimator_
 
 def _print_evaluation_metrics(labels, predictions, probas):

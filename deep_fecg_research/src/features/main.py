@@ -43,7 +43,8 @@ def _extract_mfcc(data, sr=360, n_mfcc=13):
     mfccs = []
     for heartbeat in data:
         heartbeat = heartbeat.astype(float)
-        mfcc = librosa.feature.mfcc(y=heartbeat, sr=sr, n_mfcc=n_mfcc)
+        n_fft = len(heartbeat) if len(heartbeat) < 2048 else 2048
+        mfcc = librosa.feature.mfcc(y=heartbeat, sr=sr, n_mfcc=n_mfcc, n_fft=n_fft)
         mfccs.append(np.mean(mfcc.T, axis=0))
     return np.array(mfccs)
 
